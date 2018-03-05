@@ -9,6 +9,12 @@
   padding: 20px;
 }
 
+.flex-container > div > a {
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: space-between;
+}
+
 .flex-container > div > p {
   font-size: 12px;
 }
