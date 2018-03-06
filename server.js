@@ -10,13 +10,16 @@ const multer = Multer({
     fileSize: 8 * 1024 * 1024 // no larger than 8 MB
   }
 });
-const bucket = gcs.bucket("serverless_imager");
+
+const config = require('./config.json');
+
+const bucket = gcs.bucket(config.bucket);
 const app = express();
 
 const port = process.env.PORT || 8080;
 
-const directoryPrefix = "serverless_imager";
-const thumbFolderName = "thumbs";
+const directoryPrefix = config.directoryPrefix;
+const thumbFolderName = config.thumbFolderName;
 
 app.set("view engine", "pug");
 
@@ -66,7 +69,12 @@ const originalImageStreamFinishHandler = (
       image
         .scaleToFit(200, 200) // resize, so the longer side will be 200px
         .quality(70) // set JPEG quality
-        .getBuffer(mimeType, (_, buffer) => thumbnailImageStream.end(buffer))
+        .getBuffer(mimeType, (err, buffer) => {
+          if (err) {
+            throw new Error(err);
+          }
+          thumbnailImageStream.end(buffer)
+        })
     )
     .catch(err => {
       console.error(err);
@@ -74,7 +82,35 @@ const originalImageStreamFinishHandler = (
     });
 };
 
-app.post("/", multer.single("image"), function(req, res) {
+const thumbnailImageStreamFinishHandler = (
+  res,
+  thumbnailImageobjectName,
+) => () => {
+  console.log("Thumbnail generation succeeded with object name: " + thumbnailImageobjectName);
+  res.set("Refresh", "0;url=/");
+  res.sendStatus(201);
+}
+
+const streamCreatorForGCSObject = (
+  bucket,
+  objectName,
+  streamOptions,
+  errorHandler
+) => {
+  const stream = bucket.file(objectName).createWriteStream(streamOptions);
+  stream.on("error", errorHandler);
+  return stream;
+};
+
+const errorHandler = message => err => {
+  console.error(err);
+  res.status(500).send(message + err);
+};
+
+const uploadHandler = (
+  req,
+  res
+) => {
   if (!req.file) {
     res.status(400).send("There was no uploaded file!");
     return;
@@ -85,30 +121,19 @@ app.post("/", multer.single("image"), function(req, res) {
     directoryPrefix + "/" + thumbFolderName + "/" + req.file.originalname;
   const mimeType =
     mime.lookup(req.file.originalname) || "application/octet-stream";
-  const originalImageGCSObject = bucket.file(originalImageobjectName);
-  const thumbnailImageGCSObject = bucket.file(thumbnailImageobjectName);
-
   const streamOptions = { metadata: { contentType: mimeType } };
 
-  const thumbnailImageStream = thumbnailImageGCSObject.createWriteStream(
-    streamOptions
-  );
-  const originalImageStream = originalImageGCSObject.createWriteStream(
-    streamOptions
-  );
-
-  const errorHandler = message => err => {
-    console.error(err);
-    res.status(500).send(message + err);
-  };
-
-  originalImageStream.on(
-    "error",
-    errorHandler("Error during iamge upload generation: ")
-  );
-  thumbnailImageStream.on(
-    "error",
+  const thumbnailImageStream = streamCreatorForGCSObject(
+    bucket,
+    thumbnailImageobjectName,
+    streamOptions,
     errorHandler("Error during thumbnail writing to GCS: ")
+  );
+  const originalImageStream = streamCreatorForGCSObject(
+    bucket,
+    originalImageobjectName,
+    streamOptions,
+    errorHandler("Error during image upload generation: ")
   );
 
   originalImageStream.on(
@@ -122,17 +147,15 @@ app.post("/", multer.single("image"), function(req, res) {
     )
   );
 
-  thumbnailImageStream.on("finish", () => {
-    console.log(
-      "Thumbnail generation succeeded with object name: " +
-        thumbnailImageobjectName
-    );
-    res.set("Refresh", "0;url=/");
-    res.sendStatus(201);
-  });
+  thumbnailImageStream.on(
+    "finish",
+    thumbnailImageStreamFinishHandler(res, thumbnailImageobjectName)
+  );
 
   originalImageStream.end(req.file.buffer);
-});
+}
+
+app.post("/", multer.single("image"), uploadHandler);
 
 app.get("/show_image", function(req, res) {
   bucket

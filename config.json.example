@@ -1,0 +1,5 @@
+{
+  "bucket": "gcs_bucket_name_in_your_project",
+  "directoryPrefix": "prefix_in_bucket_to_images_under",
+  "thumbFolderName": "another_prefix_inside_directoryPrefix_for_thumbs"
+}
