@@ -12,3 +12,4 @@
 .dockerignore
 node_modules
 #!include:.gitignore
+!config.json

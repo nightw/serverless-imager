@@ -23,37 +23,6 @@ const thumbFolderName = config.thumbFolderName;
 
 app.set("view engine", "pug");
 
-app.get("/", function(req, res) {
-  const fileList = [];
-  const prefix = directoryPrefix + "/" + thumbFolderName + "/";
-  bucket.getFiles({ prefix, delimiter: "/" })
-    .then(results => {
-      const files = results[0];
-
-      files.forEach(file => {
-        if (file.name != prefix) {
-          let baseFilename = file.name.replace(new RegExp("^" + prefix.replace("/", "/")), "");
-          const fileDisplayName = baseFilename.length > 24
-              ? baseFilename.substring(0, 24) + "..."
-              : baseFilename;
-          fileList.push({
-            thumbUrl: "show_image?name=" + thumbFolderName + "/" + baseFilename,
-            url: "show_image?name=" + baseFilename,
-            fileName: fileDisplayName
-          });
-        }
-      });
-      console.log("Got an image list with the following length: " + fileList.length);
-    })
-    .then(() => {
-      console.log("Rendering file list ...");
-      res.render("index", { images: fileList });
-    })
-    .catch(err => {
-      console.error("ERROR: ", err);
-    });
-});
-
 const originalImageStreamFinishHandler = (
   buffer,
   res,
@@ -84,10 +53,10 @@ const originalImageStreamFinishHandler = (
 
 const thumbnailImageStreamFinishHandler = (
   res,
-  thumbnailImageobjectName,
+  thumbnailImageobjectName
 ) => () => {
   console.log("Thumbnail generation succeeded with object name: " + thumbnailImageobjectName);
-  res.set("Refresh", "0;url=/");
+  res.set("Refresh", "0");
   res.sendStatus(201);
 }
 
@@ -108,19 +77,15 @@ const errorHandler = message => err => {
 };
 
 const uploadHandler = (
-  req,
-  res
+  res,
+  originalFileName,
+  originalFileBuffer
 ) => {
-  if (!req.file) {
-    res.status(400).send("There was no uploaded file!");
-    return;
-  }
-
-  const originalImageobjectName = directoryPrefix + "/" + req.file.originalname;
+  const originalImageobjectName = directoryPrefix + "/" + originalFileName;
   const thumbnailImageobjectName =
-    directoryPrefix + "/" + thumbFolderName + "/" + req.file.originalname;
+    directoryPrefix + "/" + thumbFolderName + "/" + originalFileName;
   const mimeType =
-    mime.lookup(req.file.originalname) || "application/octet-stream";
+    mime.lookup(originalFileName) || "application/octet-stream";
   const streamOptions = { metadata: { contentType: mimeType } };
 
   const thumbnailImageStream = streamCreatorForGCSObject(
@@ -139,7 +104,7 @@ const uploadHandler = (
   originalImageStream.on(
     "finish",
     originalImageStreamFinishHandler(
-      req.file.buffer,
+      originalFileBuffer,
       res,
       originalImageobjectName,
       mimeType,
@@ -152,12 +117,54 @@ const uploadHandler = (
     thumbnailImageStreamFinishHandler(res, thumbnailImageobjectName)
   );
 
-  originalImageStream.end(req.file.buffer);
+  originalImageStream.end(originalFileBuffer);
 }
 
-app.post("/", multer.single("image"), uploadHandler);
+const getImagesHandler = (req, res) => {
+  const fileList = [];
+  const prefix = directoryPrefix + "/" + thumbFolderName + "/";
+  bucket.getFiles({ prefix, delimiter: "/" })
+    .then(results => {
+      const files = results[0];
 
-app.get("/show_image", function(req, res) {
+      files.forEach(file => {
+        if (file.name != prefix) {
+          let baseFilename = file.name.replace(new RegExp("^" + prefix.replace("/", "/")), "");
+          const fileDisplayName = baseFilename.length > 24
+              ? baseFilename.substring(0, 24) + "..."
+              : baseFilename;
+          fileList.push({
+            thumbUrl: "show_image?name=" + thumbFolderName + "/" + baseFilename,
+            url: "show_image?name=" + baseFilename,
+            fileName: fileDisplayName
+          });
+        }
+      });
+      console.log("Got an image list with the following length: " + fileList.length);
+    })
+    .then(() => {
+      console.log("Rendering file list ...");
+      res.render("index", { images: fileList });
+    })
+    .catch(err => {
+      console.error("ERROR: ", err);
+    });
+}
+
+const postImageHandler = (req, res) => {
+  if (!req.file) {
+    res.status(400).send("There was no uploaded file!");
+    return;
+  }
+
+  uploadHandler(
+    res,
+    req.file.originalname,
+    req.file.buffer
+  );
+}
+
+const showImageHandler = (req, res) => {
   bucket
     .file("/" + directoryPrefix + "/" + req.query.name)
     .exists()
@@ -179,9 +186,15 @@ app.get("/show_image", function(req, res) {
         res.status(404).send("Image not found!");
       }
     });
-});
+}
 
-exports.app = app;
+app.get("/", getImagesHandler);
+app.get("/show_image", showImageHandler);
+app.post("/", multer.single("image"), postImageHandler);
+
+exports.getImagesHandler = getImagesHandler;
+exports.showImageHandler = showImageHandler;
+exports.uploadHandler = uploadHandler;
 
 app.listen(port, () =>
   console.log("Serverless Imager app listening on port " + port + "!")
