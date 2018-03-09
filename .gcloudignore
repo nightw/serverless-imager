@@ -11,5 +11,6 @@
 .gitignore
 .dockerignore
 node_modules
+deploy_to_kubernetes.sh
 #!include:.gitignore
 !config.json

@@ -1,1 +1,3 @@
 node_modules
+deploy_to_kubernetes.sh
+function.js

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "A sample, minimal Node.js application for image management. The goal is to showcase the differences (and a simple migration path) between running your application on a VM, on Kubernetes and on Google Cloud Functions.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "deploy:kubernetes": "./deploy_to_kubernetes.sh",
+    "deploy:cloud-functions": "gcloud beta functions deploy serverless_imager --trigger-http"
   },
   "dependencies": {
     "@google-cloud/storage": "^1.5.2",
