@@ -11,9 +11,33 @@ const multer = Multer({
   }
 });
 
+try {
+  require('./config.json');
+} catch (_) {
+  console.error("ERROR: 'config.json' could not be loaded. Maybe it does not exist?");
+  process.exit(1);
+}
+
 const config = require('./config.json');
 
+if (config.bucket == null) {
+  console.error("ERROR: 'config.json' file misses the key 'bucket'!");
+  process.exit(2);
+}
+
 const bucket = gcs.bucket(config.bucket);
+
+bucket.exists(function(err, exists) {
+  if (err) {
+    console.error("ERROR: Bucket " + config.bucket + " cannot be read!");
+    process.exit(3);
+  }
+  if (!exists) {
+    console.error("ERROR: Bucket " + config.bucket + " does not exist!");
+    process.exit(4);
+  }
+});
+
 const app = express();
 
 const port = process.env.PORT || 8080;
@@ -148,6 +172,7 @@ const getImagesHandler = (req, res) => {
     })
     .catch(err => {
       console.error("ERROR: ", err);
+      res.status(500).send(message + err);
     });
 }
 
@@ -185,6 +210,10 @@ const showImageHandler = (req, res) => {
         console.log("The following file does not exit on GCS: " + fullPath);
         res.status(404).send("Image not found!");
       }
+    })
+    .catch(err => {
+      console.error("ERROR: ", err);
+      res.status(500).send(message + err);
     });
 }
 
